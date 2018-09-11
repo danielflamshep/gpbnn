@@ -54,13 +54,14 @@ def sample_functions(params, x, y, xs, samples=5):
     return sampled_funcs.T
 
 
-def sample_gpp(x, n_samples, kernel='rbf', noise=1e-7):
+def sample_gpp(x, n_samples, kernel='rbf', noise=1e-6):
     """ samples from the gp prior. x shape [N_data,1]"""
     covariance = kernel_dict[kernel]
     K = covariance(x, x) + noise * np.eye(x.shape[0])
+    # print(K[0],K[:,0], K.shape) ; exit()
     L = cholesky(K)
     e = rs.randn(n_samples, x.shape[0])
-    return np.dot(e, L)  # [ns, nd]
+    return np.dot(e, L.T)  # [ns, nd]
 
 
 if __name__ == '__main__':
