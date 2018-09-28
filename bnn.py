@@ -6,6 +6,7 @@ import autograd.numpy.random as npr
 from autograd import grad
 from autograd.misc.optimizers import adam
 
+import plotting as p
 from util import build_toy_dataset, act_dict
 rs = npr.RandomState(0)
 
@@ -31,8 +32,10 @@ def reshape_weights(weights, layer_sizes):
 
 
 def bnn_predict(weights, inputs, layer_sizes, act):
-    inputs = np.expand_dims(inputs, 0)  # [1,N,D]
-    for W, b in unpack_layers(weights, layer_sizes):
+    if len(inputs.shape)<3: inputs = np.expand_dims(inputs, 0)  # [1,N,D]
+    weights = reshape_weights(weights, layer_sizes)
+    for W, b in weights:
+        #print(W.shape, inputs.shape)
         outputs = np.einsum('mnd,mdo->mno', inputs, W) + b
         inputs = act_dict[act](outputs)
     return outputs
@@ -87,44 +90,32 @@ def init_var_params(layer_sizes, scale=-5, scale_mean=1):
     _, num_weights = shapes_and_num(layer_sizes)
     return rs.randn(num_weights)*scale_mean, np.ones(num_weights)*scale  # mean, log_std
 
+def train_bnn(data='cubic', n_data=5, n_samples=5, arch=[1,20,20,1], act='rbf',
+              iters=100, lr=0.1, plot=True, save=False):
+
+    if type(data) == str:
+        inputs, targets = build_toy_dataset(data=data, n_data=n_data)
+    else:
+        inputs, targets = data
+
+    if plot: fig, ax = p.setup_plot()
+
+    def loss(params, t):
+        return vlb_objective(params, inputs, targets, arch, n_samples, act=act)
+
+    def callback(params, t, g):
+        plot_inputs = np.linspace(-10, 10, num=500)[:, None]
+        f_bnn = sample_bnn(params, plot_inputs, 5, arch, act)
+
+        # Plot data and functions.
+        p.plot_iter(ax, inputs, plot_inputs, targets, f_bnn)
+        print("ITER {} | LOSS {}".format(t, -loss(params, t)))
+
+    var_params = adam(grad(loss), init_var_params(arch),
+                      step_size=lr, num_iters=iters, callback=callback)
 
 if __name__ == '__main__':
 
-    # Set up
-    arch = [1, 20, 20, 1]
-    inputs, targets = build_toy_dataset(data='xsinx', n_data=70)
-
-    fig = plt.figure(facecolor='white')
-    ax = fig.add_subplot(111)
-    plt.ion()
-    plt.show(block=False)
-
-    def objective(params,t):
-        return vlb_objective(params, inputs, targets, arch, n_samples=5, act='rbf')
-
-    def callback(params, t, g):
-        # Sample functions from posterior f ~ p(f|phi) or p(f|varphi)
-        N_samples, nd = 5, 400
-        plot_inputs = np.linspace(-8, 8, num=400)
-        f_bnn = sample_bnn(params, plot_inputs[:,None], N_samples, arch, 'rbf' )
-
-        # Plot data and functions.
-
-        plt.cla()
-        ax.plot(inputs.ravel(), targets.ravel(), 'k.')
-        ax.plot(plot_inputs, f_bnn.T, color='r')
-        ax.set_title("fitting to toy data")
-        ax.set_ylim([-5, 5])
-        plt.draw()
-        plt.pause(1.0 / 60.0)
-
-        print("ITER {} | OBJ {}".format(t, -objective(params, t)))
-
-
-    init_var_params = init_var_params(arch)
-    var_params = adam(grad(objective), init_var_params,
-                      step_size=0.1, num_iters=50, callback=callback)
-
-
+    train_bnn()
 
 
