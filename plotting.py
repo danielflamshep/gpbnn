@@ -5,6 +5,8 @@ import itertools
 #from matplotlib.mlab import biivariate_normal
 from mpl_toolkits.mplot3d import Axes3D
 from util import covariance
+import matplotlib.mlab as mlab
+from gmm import fit_one_gmm
 import seaborn as sns
 from scipy.stats import norm
 sns.set_style("white")
@@ -19,9 +21,9 @@ pal_col = {"bnn": sns.light_palette("#3498db", n_colors=n),  # nice blue
            "gpp": sns.light_palette("#e74c3c", n_colors=n),  # nice red
            "gp" : sns.light_palette("#2ecc71", n_colors=n)}  # nice green eh not so nice
 
-def setup_plot():
+def setup_plot(frameon=False):
     fig = plt.figure(figsize=(12, 8), facecolor='white')
-    ax = fig.add_subplot(111, frameon=False)
+    ax = fig.add_subplot(111, frameon=frameon)
     plt.show(block=False)
     return fig, ax
 
@@ -40,10 +42,11 @@ def plot_iter(ax, x, xp, y, p):
     plt.pause(1.0 / 60.0)
 
 def plot_fs(x, fs, xp, fgp, save_name):
-    fig, ax = setup_plot()
+    fig, ax = setup_plot(frameon=True)
     ax.plot(x, fs.T, color='r', label="hypernet")
     ax.plot(xp, fgp.T, color='g', label="gp")
-    ax.set_title("final hypernet samples")
+    ax.set_yticklabels([])
+    ax.set_xticklabels([])
     plt.savefig("last-hypernet"+save_name+'.pdf', bbox_inches='tight')
 
 def plot_mean_std(x_plot, p, D, title="", plot="bnn"):
@@ -111,28 +114,48 @@ def plot_priors(x_plot, draws, title):
     ax[0].plot(x_plot, f_gp_prior, sns.xkcd_rgb["green"], lw=1)
     ax[1].plot(x_plot, f_gp_bnn_prior, sns.xkcd_rgb["red"], lw=1)
     ax[2].plot(x_plot, f_bnn_prior, sns.xkcd_rgb["blue"], lw=1)
-    ax[1].set_title('learned bnn prior')
-    ax[2].set_title('N(0,1) bnn prior')
-
 
     plt.tick_params(labelbottom='off')
     plt.savefig(title, bbox_inches='tight')
 
 def plot_heatmap(moments, title):
     _, Sigma = moments
-    sns.heatmap(Sigma, cmap="YlGnBu")
-    plt.savefig(title, bbox_inches='tight')
+    sns.heatmap(Sigma, xticklabels=False, yticklabels=False)
+    plt.savefig(title+".pdf", bbox_inches='tight')
+
+def save_one_hist(ws, int, mu, sigma, save_name):
+    plt.hist(ws[:,int], bins=30)
+    x = np.linspace(mu - 3 * sigma, mu + 3 * sigma, 100)
+    plt.plot(x, mlab.normpdf(x, mu, sigma))
+    plt.savefig(save_name+"\w"+str(int)+".pdf", bbox_inches='tight')
+    plt.clf()
+
 
 def plot_weights(weights, save_name):  # [ns, nw]
-    fig, axes = plt.subplots(3, 3)
-    for ax in axes.reshape(-1):
+    mus, var = fit_one_gmm(weights)
+    print('ploting')
+    fig_kw = {'figsize': (20, 20)}
+    fig, axes = plt.subplots(10, 10, **fig_kw)
+    for i, ax in enumerate(axes.reshape(-1)):
         int = np.random.randint(weights.shape[1])
-        ws = weights[:, int]
+        ws = weights[:, i]
         ax.set_yticklabels([])
         ax.set_xticklabels([])
-        ax.set_title("p(w) vs w")
-        sns.distplot(ws, rug=True, ax=ax)
-    plt.savefig("weightspace"+save_name+".pdf", bbox_inches='tight')
+        mu = mus[:, int]
+        sigma = np.sqrt(var[:, int])
+        x = np.linspace(mu - 3 * sigma, mu + 3 * sigma, 100)
+        ax.plot(x, mlab.normpdf(x, mu, sigma))
+        #sns.distplot(ws, kde=False, norm_hist=True, rug=True, ax=ax)
+        ax.hist(ws, bins=30)
+        mu = mus[:, int]
+        sigma = np.sqrt(var[:, int])
+        x = np.linspace(mu - 3 * sigma, mu + 3 * sigma, 100)
+        ax.plot(x, mlab.normpdf(x, mu, sigma))
+#        save_one_hist(ws, int, mu, sigma, save_name)
+    plt.savefig(save_name+"weightspace.pdf", bbox_inches='tight')
+    plt.clf()
+    for i in range(10*10):
+        save_one_hist(weights, i, mu, sigma, save_name)
 
 
 def plot_weights_function_space(weights, funcs, save_name, num=5):  # [ns, nw]
@@ -179,3 +202,16 @@ def plot_weights_3d():
     ax.set_ylabel('Y axis')
     ax.set_zlabel('Z axis')
     plt.show()
+
+def plot_dark_contour(weights, num=15):
+    for num in range(num):
+        intw = np.random.randint(weights.shape[1] - 1)
+        ws1, ws2 = weights[:, intw], weights[:, intw+1]
+        f, ax = plt.subplots(figsize=(6, 6))
+        pal = sns.light_palette((260, 75, 60), input="husl", as_cmap=True)
+        sns.kdeplot(ws1, ws2, cmap=pal, shade=True)
+        ax.set_yticklabels([])
+        ax.set_xticklabels([])
+        plt.savefig(str(intw)+"wscplot.pdf", bbox_inches='tight')
+        plt.clf()
+

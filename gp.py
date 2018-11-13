@@ -21,8 +21,9 @@ def unpack_kernel_params(params, noise=1e-4):
 def covariance(kernel_params, x, xp):
     os = np.exp(kernel_params[0])
     ls = np.exp(kernel_params[1:])
+    x,xp = x/ls, xp/ls
     diffs = x[:, None] -xp[None, :]
-    return os * np.exp(-0.5 * np.sum(diffs/ls ** 2, axis=2))
+    return os * np.exp(-0.5 * np.sum(diffs ** 2, axis=2))
 
 
 def predict(params, x, y, xstar):
@@ -54,37 +55,67 @@ def sample_functions(params, x, y, xs, samples=5):
     return sampled_funcs.T
 
 
-def sample_gpp(x, n_samples, kernel='rbf', noise=1e-6):
+def sample_gpp(x, n_samples, kernel='rbf', noise=1e-10):
     """ samples from the gp prior. x shape [N_data,1]"""
     covariance = kernel_dict[kernel]
     K = covariance(x, x) + noise * np.eye(x.shape[0])
-    # print(K[0],K[:,0], K.shape) ; exit()
+    #print(K[0],K[:,0], K.shape) ; exit()
     L = cholesky(K)
     e = rs.randn(n_samples, x.shape[0])
     return np.dot(e, L.T)  # [ns, nd]
 
+def sample_gpp_multi(x, kernel='rbf', noise=1e-6):
+    """ samples from the gp prior. x shape [N_data,1]"""
+    covariance = kernel_dict[kernel]
+    j = noise * np.eye(x.shape[0])
+    K = covariance(x, x) + j[None, :]
+    L = cholesky(K)
+    e = rs.randn(x.shape[0])
+    return np.dot(L, e)  # [ns, nd]
+
+def train_gp(D=1, data='xsinx', n_data=5):
+
+    num_params = D+3  # mean , 2 kernel params, noise
+    params = 0.1 * rs.randn(num_params)
+
+    X, y = build_toy_dataset(data, n_data)
+    y = y.ravel()
+    D = X, y[:, None]
+
+    fig, ax = plotting.setup_plot()
+
+    x_plot = np.reshape(np.linspace(-8, 8, 400), (400, 1))
+    pred_mean, pred_cov = predict(params, X, y, x_plot)  # shapes [N_data], [N_data, N_data]
+    std = np.sqrt(np.diag(pred_cov))  # shape [N_data]
+    ax.plot(x_plot, pred_mean, 'b')
+    p = sample_functions(params, X, y, x_plot, 3)  # [nf, ]
+    ax.plot(x_plot, p)
+    ax.plot(X.ravel(), y.ravel(), '.')
+    plt.show()
+    # plotting.plot_deciles(x_plot.ravel(), p, D, save_dir, plot="gp")
+
 
 if __name__ == '__main__':
+
 
     D = 1
     exp_num = 2
     n_data = 70
-    iters = 5
+    iters = 20
     data = "expx"
     samples = 5
     save_plots = True
-    plot_during = False
+    plot_during = True
     rs = npr.RandomState(0)
     mvnorm = rs.multivariate_normal
-    save_title = "exp-" + str(exp_num)+data + "-posterior samples {}".format(samples)
-    save_dir = os.path.join(os.getcwd(), 'plots', 'gp', save_title)
+
 
     num_params = D+3  # mean , 2 kernel params, noise
 
-    X, y = build_toy_dataset(data, n_data)
+    X, y = build_toy_dataset()
     y = y.ravel()
 
-    objective = lambda params, t: log_marginal_likelihood(params, X, y)
+    objective = lambda params, t:-log_marginal_likelihood(params, X, y)
 
     if plot_during:
         fig = plt.figure(figsize=(12,8), facecolor='white')
@@ -100,8 +131,7 @@ if __name__ == '__main__':
             pred_mean, pred_cov = predict(params, X, y, x_plot)  # shapes [N_data], [N_data, N_data]
             std = np.sqrt(np.diag(pred_cov))  # shape [N_data]
             ax.plot(x_plot, pred_mean, 'b')
-            ax.fill_between(x_plot.ravel(), pred_mean - 1.96*std, pred_mean + 1.96*std,
-                            color=sns.xkcd_rgb["sky blue"])
+            ax.fill_between(x_plot.ravel(), pred_mean - 1.96*std, pred_mean + 1.96*std, color='b')
 
             # Show sampled functions from posterior.
             sf = mvnorm(pred_mean, pred_cov, size=5)  # [ns, nd]
@@ -113,24 +143,21 @@ if __name__ == '__main__':
             ax.set_yticks([])
             plt.draw()
             plt.pause(1.0/60.0)
-            if t == 1:
-                D = X, y[:, None]
-                p = sample_functions(params, X, y, x_plot, samples)
-                plotting.plot_deciles(x_plot.ravel(), p, D, save_dir, plot="gp")
+
 
 
     # Initialize covariance parameters
     rs = npr.RandomState(0)
     init_params = 0.1 * rs.randn(num_params)
     cov_params = adam(grad(objective), init_params,
-                      step_size=0.1, num_iters=iters, callback=callback)
+                      step_size=0.01, num_iters=iters, callback=callback)
 
     if save_plots:
         D = X, y[:, None]
         x_plot = np.reshape(np.linspace(-8, 8, 400), (400, 1))
         p = sample_functions(cov_params, X, y, x_plot, samples)
         print(p.shape)
-        plotting.plot_deciles(x_plot.ravel(), p, D, save_dir, plot="gp")
+        plotting.plot_deciles(x_plot.ravel(), p, D, "gppost", plot="gp")
 
 
 

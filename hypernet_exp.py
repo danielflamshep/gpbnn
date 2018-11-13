@@ -2,34 +2,27 @@ import inspect
 import autograd.numpy as np
 import autograd.numpy.random as npr
 from autograd.numpy.linalg import cholesky
-
 from autograd import grad
 from autograd.misc import flatten
 import autograd.scipy.stats.norm as norm
 from autograd.misc.optimizers import adam
 
-from util import manage_and_save
+from util import manage_and_save, get_save_name
 import plotting as p
 from bnn import shapes_and_num, reshape_weights, bnn_predict, log_pdf_prior, log_like
 from nn import nn_predict, setup_plot, init_random_params
 from gp import sample_gpp
 from hypernn_gp import log_gaussian, get_moments, sample_normal
-
+from prior_reparams import reparameterize
 rs = npr.RandomState(2)
-
-def reparameterize_horshoe(x, b0=1, bg=1):
-    eps = npr.uniform(size=x.shape)
-    eta = b0*np.tanh(.5*np.pi * x)
-    tau = bg*np.tanh(.5*np.pi * x)
-    return eta*tau*x
 
 
 def log_gaussian(x, mu, std):
     return np.mean(norm.logpdf(x, mu, std))
 
 def hyper_predict(params, x, xy, nn_arch, nn_act):  # xy shape is [nf, 2*nd]
-    weights = nn_predict(params, xy, 'tanh')  # [nf, nw]
-    weights = reparameterize_horshoe(weights)
+    weights = nn_predict(params, xy, nn_act)  # [nf, nw]
+    #weights = reparameterize(weights, prior='dropout')
     return bnn_predict(weights, x, nn_arch, nn_act)[:, :, 0]  # [nf, nd]
 
 def hyper_loss(hyper_param, x, y, xy, net_arch, act):
@@ -42,7 +35,7 @@ def sample_inputs(nfuncs, ndata):
     return xs[:,:,None]
 
 def sample_gps(nfuncs, ndata, ker):
-    xs = sample_inputs(nfuncs,ndata)
+    xs = sample_inputs(nfuncs, ndata)
     fgp = [sample_gpp(x, 1, kernel=ker) for x in xs]
     return xs, np.concatenate(fgp, axis=0)
 
@@ -61,12 +54,12 @@ def plot_samples(params, x, n_samples, layer_sizes, act, ker, save=None):
     f = bnn_predict(wz, x, layer_sizes, act)[:, :, 0]
     p.plot_priors(x, (fgp.T, f.T, fnn.T), save)
 
-def train(n_data=100, n_data_test=100, n_functions=500,
-          nn_arch=[1,20,1], hyper_arch=[30],
-          act='tanh', ker='lin',
-          lr=0.01, iters=300,
+def train(n_data=50, n_data_test=100, n_functions=500,
+          nn_arch=[1,15,15,1], hyper_arch=[20],
+          act='rbf', ker='per',
+          lr=0.01, iters=200,
           exp=1, run=1, feed_x=True,
-          plot='False', save=False):
+          plot=True, save=False):
 
     _, num_weights = shapes_and_num(nn_arch)
     hyper_arch = [2*n_data]+hyper_arch+[num_weights]
@@ -74,7 +67,8 @@ def train(n_data=100, n_data_test=100, n_functions=500,
     xs, ys, xys = sample_data(n_functions, n_data, ker=ker)
 
     # save_file, args = manage_and_save(inspect.currentframe(),exp,run)
-    save_name = 'hs3-'+str(n_data)+'nf-'+str(n_functions)+"-"+act+ker
+    save_name = 'none-'+str(n_data)+'nf-'+str(n_functions)+"-"+act+ker
+    save_name = get_save_name(n_data, n_functions, act, ker, nn_arch, hyper_arch)
 
     if plot: fig, ax = setup_plot()
 
@@ -91,13 +85,16 @@ def train(n_data=100, n_data_test=100, n_functions=500,
     var_params = adam(grad(objective), init_random_params(hyper_arch),
                       step_size=lr, num_iters=iters, callback=callback)
 
-    ws = nn_predict(var_params, xys, "tanh")  # [ns, nw]
-    ws = reparameterize_horshoe(ws)
+    xs, ys, xys = sample_data(10000, n_data, ker=ker)
+    ws = nn_predict(var_params, xys, act)  # [ns, nw]
+    #ws = reparameterize(wse, prior='dropout')
+
     fs = bnn_predict(ws, xs, nn_arch, act)[:, :, 0]  # [nf, nd]
 
     p.plot_weights(ws, save_name)
+    #p.plot_weights(ws, 'post'+save_name)
     p.plot_weights_function_space(ws, fs, save_name)
-    p.plot_fs(xs[0], fs[0:3], xs[0], ys[0:3], save_name)
+    #p.plot_fs(xs[0], fs[0:3], xs[0], ys[0:3], save_name)
 
     return ws, var_params
 

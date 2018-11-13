@@ -9,7 +9,9 @@ import autograd.scipy.stats.norm as norm
 from autograd.misc.optimizers import adam
 
 import plotting as p
-from bnn import shapes_and_num, reshape_weights, bnn_predict, log_pdf_prior, log_like
+from gmm import fit_one_gmm
+from implicit_functions import sample_function
+from bnn import shapes_and_num, reshape_weights, bnn_predict, train_bnn
 from nn import nn_predict, setup_plot, init_random_params
 from gp import sample_gpp
 
@@ -48,15 +50,15 @@ def plot_samples(params, x, n_samples, layer_sizes, act, ker, save=None):
     ws = sample_normal(params, n_samples)
     fnn = bnn_predict(ws, x, layer_sizes, act)[:, :, 0]  # [ns, nd]
     fgp = sample_gpp(x, n_samples, ker)
-
+    fgp = sample_function(x,n_samples)
     # functions from a standard normal bnn prior
     wz = sample_normal((np.zeros(ws.shape[1]), np.ones(ws.shape[1])), n_samples)
     f = bnn_predict(wz, x, layer_sizes, act)[:, :, 0]
-    plot_priors(x, (fgp.T, f.T, fnn.T), save)
+    p.plot_priors(x, (fgp.T, f.T, fnn.T), save)
 
 def train(n_data=100, n_data_test=100, n_functions=100,
           nn_arch=[1,20,1], hyper_arch=[30],
-          act='tanh', ker='lin', plot='False', save=False,
+          act='tanh', ker='rbf', plot='False', save=False,
           lr=0.01, iters=200):
 
     _, num_weights = shapes_and_num(nn_arch)
@@ -67,13 +69,13 @@ def train(n_data=100, n_data_test=100, n_functions=100,
 
 if __name__=='__main__':
 
-    n_data, n_data_test = 100, 200
-    n_functions = 200
-    nn_arch = [1, 20, 20, 1]
+    n_data, n_data_test = 50, 200
+    n_functions = 500
+    nn_arch = [1, 50, 1]
     _, num_weights = shapes_and_num(nn_arch)
-    hyper_arch = [n_data, 50, 50, num_weights]
+    hyper_arch = [n_data, 20, 20, num_weights]
 
-    act = 'tanh'; ker = 'lin'
+    act = 'rbf'; ker = 'rbf'
 
     save_name = 'exp'+str(n_data)+'nf-'+str(n_functions)+"-"+act+ker
 
@@ -82,7 +84,7 @@ if __name__=='__main__':
     x=np.sort(x,0)
     xt = np.linspace(-10, 10, n_data_test).reshape(n_data_test, 1)
     ys = sample_gpp(x, n_samples=n_functions, kernel=ker)  # [ns, nd]
-
+    #ys = sample_function(x, n_functions, n_data)
 
     plot = True
     if plot: fig, ax = setup_plot()
@@ -90,32 +92,39 @@ if __name__=='__main__':
     def objective(params, t): return hyper_loss(params, x, ys, nn_arch, act)
 
     def callback(params, t, g):
-        y=sample_gpp(x,1, ker)
+        y=sample_gpp(x, 1, ker)
+        #y=sample_function(x,1)
         preds = hyper_predict(params, x, y, nn_arch, act)  #[1,nd]
         if plot: p.plot_iter(ax, x, x, y, preds)
         cd = np.cov(y.ravel())-np.cov(preds.ravel())
         print("ITER {} | OBJ {} COV DIFF {}".format(t, objective(params, t), cd))
 
     var_params = adam(grad(objective), init_random_params(hyper_arch),
-                      step_size=0.01, num_iters=400, callback=callback)
+                      step_size=0.005, num_iters=200, callback=callback)
 
 
     xtest = np.linspace(-10, 10, n_data_test).reshape(n_data_test, 1)
 
 
     fgps = sample_gpp(x, n_samples=500, kernel=ker)
+    #fgps = sample_function(x, 500)
     ws = nn_predict(var_params, fgps, "relu")  # [ns, nw]
     fs = bnn_predict(ws, x, nn_arch,act)[:, :, 0]
-    p.plot_weights_function_space(ws, fs, save_name)
-    moments = get_moments(ws)
-
+    #p.plot_weights_function_space(ws, fs, save_name)
+    moments = get_moments(ws, full_cov=True)
+    #p.plot_heatmap(moments, "heatmap"+save_name)
 
     # PLOT HYPERNET
-    fgp = sample_gpp(x, n_samples=3, kernel=ker)
-    fnns = hyper_predict(var_params, xtest,fgp, nn_arch, act)
-    p.plot_fs(xtest, fnns,x, fgp, save_name+".pdf")
+    #fgp = sample_gpp(x, n_samples=2, kernel=ker)
+    #fnns = hyper_predict(var_params, xtest,fgp, nn_arch, act)
+    #p.plot_fs(xtest, fnns, x, fgp, save_name)
 
     #plot_heatmap(moments,"Cov-heatmap"+save_name+'.pdf')
-    plot_samples(moments, xtest, 5, nn_arch, act=act, ker=ker, save = save_name+'.pdf')
-    p.plot_weights(moments, num_weights, save_name)
+    #plot_samples(moments, xtest, 5, nn_arch, act=act, ker=ker, save = save_name+'.pdf')
+    #p.plot_dark_contour(ws)
+    #p.plot_weights(moments, num_weights, save_name)
 
+    moments = fit_one_gmm(ws)
+
+    #type="spherical"
+    #train_bnn(prior_params=moments, prior_type="full")

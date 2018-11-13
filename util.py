@@ -8,12 +8,12 @@ import os
 rs = npr.RandomState(0)
 
 
-def build_toy_dataset(data="xsinx", n_data=70, noise_std=0.1, D=1):
+def build_toy_dataset(data="expx", n_data=70, noise_std=0.1, D=1):
     bell = lambda x: np.exp(-0.5 * x ** 2)
     cube = lambda x: 0.1 * x * np.sin(x)
 
     if data == "expx":
-        inputs = np.linspace(0, 4, num=n_data)
+        inputs = np.linspace(-2, 2, num=n_data)
         targets = bell(inputs) + rs.randn(n_data) * noise_std
 
     elif data == "cosx":
@@ -31,8 +31,13 @@ def build_toy_dataset(data="xsinx", n_data=70, noise_std=0.1, D=1):
         targets = inputs+ rs.randn(n_data) * noise_std*14
 
     elif data == "cubic":
-        inputs = np.linspace(-3, 3, num=n_data)
+        inputs = np.linspace(-1.2, 1.2, num=n_data)
         targets = inputs**3 + rs.randn(n_data) * noise_std
+
+    elif data == "tb":
+        inputs = np.linspace(-3, 3, num=n_data)
+        targets = np.tanh(-inputs) + rs.randn(n_data) * noise_std
+
 
     inputs = inputs.reshape((len(inputs), D))
     targets = targets.reshape((len(targets), D))
@@ -58,6 +63,14 @@ def covariance(x, xp, kernel_params=0.1 * rs.randn(2)):
 
 
 #---------LOADING AND Saving----------#
+
+def get_save_name(n_data, n_functions,act,ker, nn_arch, hyper_arch):
+    save_name ="nd"+str(n_data)+'nf-'+str(n_functions)\
+               +"-"+act+ker+str(nn_arch)+str(hyper_arch)
+    save_dir = os.path.join(os.getcwd(), 'plots', save_name)
+    if not os.path.exists(save_dir): os.makedirs(save_dir)
+
+    return save_dir
 
 def manage_and_save(frame, exp, run):
 
@@ -104,11 +117,11 @@ def L2_norm(x, xp): return np.sum(d(x,xp)**2, axis=2)
 def L1_norm(x, xp): return np.sum((d(x,xp)**2)**0.5, axis=2)
 
 
-def kernel_rbf(x, xp, s=1, l=1):
+def kernel_rbf(x, xp, s=1, l=2):
     d = L2_norm(x, xp)
     return s*np.exp(-0.5 * d/l**2)
 
-def kernel_per(x, xp, s = 1, p=1, l=1):
+def kernel_per(x, xp, s = .5, p=25, l=5):
     d = L1_norm(x, xp)/p
     return s*np.exp(-2 * (np.sin(np.pi*d)/l)**2)
 
@@ -131,6 +144,9 @@ def kernel_matern(x, xp):
 
 def kernel_per_rbf(x, xp):
     return kernel_per(x, xp)*kernel_rbf(x, xp)
+
+def kernel_constant(x,xp, c=1):
+    return
 
 def kernel_lin(x, xp, c=0, s=1, h=0):
     x = x.ravel(); xp=xp.ravel()

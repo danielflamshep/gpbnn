@@ -5,10 +5,12 @@ import matplotlib.pyplot as plt
 import autograd.numpy as np
 import autograd.numpy.random as npr
 import autograd.scipy.stats.norm as norm
+
 from autograd import grad
 from autograd.misc import flatten
-
 from autograd.misc.optimizers import adam
+
+from util import act_dict
 
 def init_random_params(layer_sizes, scale =0.1, rs=npr.RandomState(0)):
     """Build a list of (weights, biases) tuples, one for each layer."""
@@ -16,10 +18,10 @@ def init_random_params(layer_sizes, scale =0.1, rs=npr.RandomState(0)):
              rs.randn(outsize) * scale)           # bias vector
             for insize, outsize in zip(layer_sizes[:-1], layer_sizes[1:])]
 
-def nn_predict(params, inputs, nonlinearity=np.tanh):
+def nn_predict(params, inputs, act='tanh'):
     for W, b in params:
         outputs = np.dot(inputs, W) + b
-        inputs = nonlinearity(outputs)
+        inputs = act_dict[act](outputs)
     return outputs
 
 def log_gaussian(params, scale):
@@ -30,7 +32,7 @@ def logprob(weights, inputs, targets, act, noise_scale=0.1):
     predictions = nn_predict(weights, inputs, act)
     return np.sum(norm.logpdf(predictions, targets, noise_scale))
 
-def map_objective(w, x, y, act=np.tanh, var =10):
+def map_objective(w, x, y, act='rbf', var =10):
     return -logprob(w, x, y, act)-log_gaussian(w, var)
 
 def build_toy_dataset(n_data=8000, noise_std=0.1):
@@ -67,7 +69,7 @@ if __name__ == '__main__':
     fig, ax = setup_plot()
 
     def callback(params, t, g):
-        print("Iteration {} log likelihood {}".format(t, -objective(params, t)))
+        print("Iteration {} log likelihood {}".format(t, -nn_objective(params, t)))
 
         # Plot data and functions.
         plt.cla()
@@ -80,5 +82,5 @@ if __name__ == '__main__':
         plt.pause(1.0/60.0)
 
     print("Optimizing network parameters...")
-    optimized_params = adam(grad(objective), init_params,
+    optimized_params = adam(grad(nn_objective), init_params,
                             step_size=0.01, num_iters=1000, callback=callback)
